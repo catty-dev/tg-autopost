@@ -1,10 +1,7 @@
 [TELEGRAM]
 API_ID = 123456789
 API_HASH = xxxxxxxxxxxxxxxxxxxxxxxxx
-SESSION = xxxxxxxxxxxxxxxxxxxxxxxxxxx
+BOT_TOKEN = 00000000000:xxxxxxxxxxxx
 
 [MISC]
 DB_PATH = autopost.db
-LOG_CHANNEL = saved messages
-#SPECIAL_CHANNEL =
-#CAPTIONS_MATCH =
