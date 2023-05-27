@@ -146,6 +146,7 @@ def telegram():
         processed_media_groups_ids = []
 
         client.start()
+        client.get_dialogs()
         my_id = client.get_me().id
         my_name = client.get_me().first_name
 
