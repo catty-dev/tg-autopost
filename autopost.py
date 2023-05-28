@@ -1,20 +1,14 @@
 import sqlite3
 import asyncio
 from pyrogram import Client, filters, idle, enums
-from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PasswordHashInvalid
-from pyromod import listen
+from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PasswordHashInvalid, PeerIdInvalid
+from pyroaddon import listen
 from configparser import ConfigParser
 import getopt
 import sys
 import json
 
 
-def readopt(name):
-        global opts
-        for e in opts:
-            if e[0] == name:
-                return e[1]
-        return None
 
 
 
@@ -138,48 +132,54 @@ def telegram():
 
     clients = db.get_clients()
 
+    lock = asyncio.Lock()
+
     for client in clients:
 
         client = Client(client[0], client[1], client[2])
 
-        lock = asyncio.Lock()
-        processed_media_groups_ids = []
-
         client.start()
-        client.get_dialogs()
-        my_id = client.get_me().id
-        my_name = client.get_me().first_name
+        my_id = client.me.id
+        my_name = client.me.first_name
+
+        dialogs = []
+        for dialog in client.get_dialogs():
+            dialogs.append(dialog)
+
+        client.processed_media_groups_ids = []
+
 
         ### logs will be send to saved messages if not another chat id is defined in db ###
         log_channel = db.get_client_column(my_id, "log")
         client.send_message(log_channel, text=f"AUTOPOST started for {my_name} [`{my_id}`]")
 
-         ### client message listner and sender ###
 
-        @client.on_message(~filters.media_group & filters.photo | filters.video | filters.sticker | filters.animation | filters.video_note | filters.document)
+        ### client message listner and sender ###
+
+        @client.on_message(~filters.media_group & (filters.photo | filters.video | filters.sticker | filters.animation | filters.video_note | filters.document))
         async def resend(client, message):
-                        my_id = client.me.id
-                        if message.chat is not None and message.chat.id in db.get_sources_dests_names("source", my_id):
-                            for chat in db.get_dests_by_source(my_id ,message.chat.id):
-                                try:
-                                    if await check_special_channel(message, my_id) is False: return
-                                    await client.copy_message(int(chat), message.chat.id, message.id, caption="")
-                                except Exception as ex:
-                                    await send_error_to_log(client, ex)
+            my_id = client.me.id
+            if message.chat is not None and message.chat.id in db.get_sources_dests_names("source", my_id):
+                for chat in db.get_dests_by_source(my_id ,message.chat.id):
+                    try:
+                        if await check_special_channel(message, my_id) is False: return
+                        await client.copy_message(int(chat), message.chat.id, message.id, caption="")
+                    except Exception as ex:
+                        await send_error_to_log(client, ex)
 
         @client.on_message(filters.media_group)
         async def media_group(client, message):
             my_id = client.me.id
             if message.chat is not None and message.chat.id in db.get_sources_dests_names("source", my_id):
-                for chat in db.get_dests_by_source(my_id, message.chat.id):
-                    async with lock:
-                        if message.media_group_id in processed_media_groups_ids:
-                            return
-                        processed_media_groups_ids.append(message.media_group_id)
-                    try:
-                        await client.copy_media_group(int(chat), message.chat.id, message.id, captions="")
-                    except Exception as ex:
-                                    await send_error_to_log(client, ex)
+                async with lock:
+                    if message.media_group_id in client.processed_media_groups_ids:
+                        return
+                    client.processed_media_groups_ids.append(message.media_group_id)
+                    for chat in db.get_dests_by_source(my_id, message.chat.id):
+                        try:
+                            await client.copy_media_group(int(chat), message.chat.id, message.id, captions="")
+                        except Exception as ex:
+                            await send_error_to_log(client, ex)
 
 
         ### client command handlers ###
@@ -465,14 +465,8 @@ def test():
 
 if __name__ == "__main__":
 
-    opts, args = getopt.getopt(sys.argv[1:], "hqdc:", ["help"])
-
-    if readopt("-c") is not None:
-            configpath = readopt("-c")
-    else: configpath = 'config.ini'
-
     config = ConfigParser()
-    config.read(configpath)
+    config.read(config.ini)
 
     AUTOPOST_PROPS = ("source", "dest", "name", "user")
     CLIENT_PROPS = ("id", "name", "phone", "api_id", "api_hash", "session_string", "channel", "tags", "log")
