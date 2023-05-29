@@ -143,10 +143,10 @@ def telegram():
         bot_log = int(config.get('MISC', 'BOT_LOG_CHANNEL'))
         logger = config.get('MISC', 'LOGGER_MODE')
     except:
-        bot_log = None
-        logger = "CLIENT"
+       bot_log = None
+       logger = "CLIENT"
 
-    bot = Client("bot",
+    bot = Client("bot",in_memory=True,
     api_id=config.get('TELEGRAM', 'API_ID'),
     api_hash=config.get('TELEGRAM', 'API_HASH'),
     bot_token=config.get('TELEGRAM', 'BOT_TOKEN'))
@@ -194,7 +194,7 @@ def telegram():
                 for chat in db.get_dests_by_source(my_id ,message.chat.id):
                     try:
                         if await check_special_channel(message, my_id) is False: return
-                        await client.copy_message(int(chat), message.chat.id, message.id.id, caption="")
+                        await client.copy_message(int(chat), message.chat.id, message.id, caption="")
                     except Exception as ex:
                         await send_error_to_log(client, ex)
 
@@ -394,7 +394,7 @@ def telegram():
             new_msg = [new_msg[i:i+n] for i in range(0, len(new_msg), n)]
             await client.edit_message_text(message.chat.id, message.id, text=new_msg[0])
             for part in new_msg[1:]:
-                await client.send_message(message.chat.id, text=part)
+                await client.send_message(message.chat.id, text=f""+part)
         else: await client.edit_message_text(message.chat.id, message.id, text=new_msg)
 
 
