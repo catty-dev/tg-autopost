@@ -162,8 +162,8 @@ def telegram():
             client.start()
         except Exception as ex:
             if bot_log is not None:
-                bot.send_message(bot_log, f"Error while starting {cli[1]}: \n{ex}")
-            print(f"Error while starting {cli[1]}: \n{ex}")
+                bot.send_message(bot_log, f"ERROR WHILE STARTING CLIENT: {cli[0]} \n{ex}")
+            print(f"ERROR WHILE STARTING CLIENT: {cli[0]} \n{ex}")
             continue
 
         my_id = client.me.id
