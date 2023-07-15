@@ -154,11 +154,18 @@ def telegram():
     bot.start()
 
 
-    for client in clients:
+    for cli in clients:
 
-        client = Client(client[0], client[1], client[2])
+        client = Client(cli[0], cli[1], cli[2])
 
-        client.start()
+        try:
+            client.start()
+        except Exception as ex:
+            if bot_log is not None:
+                bot.send_message(bot_log, f"Error while starting {cli[1]}: \n{ex}")
+            print(f"Error while starting {cli[1]}: \n{ex}")
+            continue
+
         my_id = client.me.id
         my_name = client.me.first_name
 
