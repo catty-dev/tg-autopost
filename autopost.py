@@ -4,6 +4,9 @@ from pyrogram import Client, filters, idle, enums
 from pyrogram.errors import PhoneCodeInvalid, SessionPasswordNeeded, PasswordHashInvalid, PeerIdInvalid
 from pyroaddon import listen
 from configparser import ConfigParser
+from datetime import datetime, timedelta
+from threading import Thread, RLock
+from time import sleep
 import getopt
 import sys
 import json
@@ -146,7 +149,7 @@ def telegram():
        bot_log = None
        logger = "CLIENT"
 
-    bot = Client("bot",in_memory=True,
+    bot = Client("bot",
     api_id=config.get('TELEGRAM', 'API_ID'),
     api_hash=config.get('TELEGRAM', 'API_HASH'),
     bot_token=config.get('TELEGRAM', 'BOT_TOKEN'))
@@ -198,26 +201,28 @@ def telegram():
         async def resend(client, message):
             my_id = client.me.id
             if message.chat is not None and message.chat.id in db.get_sources_dests_names("source", my_id):
-                for chat in db.get_dests_by_source(my_id ,message.chat.id):
-                    try:
-                        if await check_special_channel(message, my_id) is False: return
-                        await client.copy_message(int(chat), message.chat.id, message.id, caption="")
-                    except Exception as ex:
-                        await send_error_to_log(client, ex)
+                if cache_file_id(message):
+                    for chat in db.get_dests_by_source(my_id ,message.chat.id):
+                        try:
+                            if await check_special_channel(message, my_id) is False: return
+                            await client.copy_message(int(chat), message.chat.id, message.id, caption="")
+                        except Exception as ex:
+                            await send_error_to_log(client, ex)
 
         @client.on_message(filters.media_group)
         async def media_group(client, message):
             my_id = client.me.id
             if message.chat is not None and message.chat.id in db.get_sources_dests_names("source", my_id):
-                async with lock:
-                    if message.media_group_id in client.processed_media_groups_ids:
-                        return
-                    client.processed_media_groups_ids.append(message.media_group_id)
-                    for chat in db.get_dests_by_source(my_id, message.chat.id):
-                        try:
-                            await client.copy_media_group(int(chat), message.chat.id, message.id, captions="")
-                        except Exception as ex:
-                            await send_error_to_log(client, ex)
+                if cache_file_id(message):
+                    async with lock:
+                        if message.media_group_id in client.processed_media_groups_ids:
+                            return
+                        client.processed_media_groups_ids.append(message.media_group_id)
+                        for chat in db.get_dests_by_source(my_id, message.chat.id):
+                            try:
+                                await client.copy_media_group(int(chat), message.chat.id, message.id, captions="")
+                            except Exception as ex:
+                                await send_error_to_log(client, ex)
 
 
         ### client command handlers ###
@@ -298,6 +303,46 @@ def telegram():
 
 
     ### some utility functions for client ###
+
+    cache = dict()
+    cache_duration = 48 #h
+
+    def cache_checker():
+        while True:
+            now = datetime.now()
+            with RLock():
+                delete = [key for key in cache if now >= key + timedelta(hours=cache_duration)]
+                for key in delete:
+                    del cache[key]
+            sleep(cache_duration/4)
+
+    thread = Thread(target=cache_checker)
+    thread.start()
+
+    def get_file_id(message):
+        if message.media == enums.MessageMediaType.ANIMATION:
+            file_id =message.animation.file_unique_id
+        elif message.media == enums.MessageMediaType.PHOTO:
+            file_id =message.photo.file_unique_id
+        elif message.media == enums.MessageMediaType.VIDEO:
+            file_id =message.video.file_unique_id
+        elif message.media == enums.MessageMediaType.STICKER:
+            file_id =message.sticker.file_unique_id
+        elif message.media == enums.MessageMediaType.DOCUMENT:
+            file_id =message.document.file_unique_id
+        elif message.media == enums.MessageMediaType.VIDEO_NOTE:
+            file_id =message.video_note.file_unique_id
+        else: return
+        return file_id
+
+    def cache_file_id(message):
+        file_id = get_file_id(message)
+        if file_id not in cache.values():
+            now = datetime.now()
+            with RLock():
+                cache[now] = file_id
+            return True
+        return False
 
     async def get_name(client, id):
         try:
