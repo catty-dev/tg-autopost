@@ -526,14 +526,7 @@ def telegram():
                 await message.reply(msg)
 
 
-
     idle()
-
-    bot.stop()
-
-    for client in clients:
-       client.stop()
-
 
 ### test function for clients ###
 def test():
